@@ -140,9 +140,10 @@ function loadBlob(blob, name) {
 
 function playCart(id) {
   boot(function () {
-    invoke("read_cart", { id: id }).then(function (buf) {
-      loadBlob(new Blob([buf], { type: "image/png" }), id + ".p8.png");
-    }).catch(function (e) { say("Could not read cart: " + e, true); });
+    log("load " + id + " (codo_command=6)");
+    _cartname = [String(id)];
+    codo_command = 6;
+    say("Playing " + id + ". Arrow keys + Z/X, or the on-screen pad. Enter = pause menu.");
   });
 }
 
