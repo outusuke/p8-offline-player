@@ -3,7 +3,7 @@ mod runtime;
 
 use serde::Serialize;
 use std::{fs, path::PathBuf};
-use tauri::{http, ipc::{InvokeBody, Request, Response}, AppHandle, Manager};
+use tauri::{http, ipc::Response, AppHandle, Manager};
 use tauri_plugin_opener::OpenerExt;
 
 const PNG_MAGIC: &[u8] = b"\x89PNG\r\n\x1a\n";
@@ -46,14 +46,9 @@ fn runtime_status(app: AppHandle) -> Result<Option<RuntimeInfo>, String> {
     Ok(fs::metadata(p).ok().map(|m| RuntimeInfo { size: m.len() }))
 }
 
-// Raw body instead of JSON: the file is ~1.6 MB.
 #[tauri::command]
-fn import_runtime(app: AppHandle, request: Request<'_>) -> Result<(), String> {
-    let data = match request.body() {
-        InvokeBody::Raw(d) => d,
-        _ => return Err("expected the raw bytes of the runtime file".into()),
-    };
-    runtime::validate(data)?;
+fn import_runtime(app: AppHandle, data: Vec<u8>) -> Result<(), String> {
+    runtime::validate(&data)?;
     fs::write(runtime_path(&app)?, data).map_err(|e| e.to_string())
 }
 

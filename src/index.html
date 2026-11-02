@@ -242,7 +242,7 @@ function checkRuntime() {
 function importRuntime(input) {
   var f = input.files[0]; if (!f) return;
   f.arrayBuffer()
-    .then(function (buf) { return invoke("import_runtime", new Uint8Array(buf)); })
+    .then(function (buf) { return invoke("import_runtime", { data: Array.from(new Uint8Array(buf)) }); })
     .then(function () { log("runtime imported from " + f.name); return checkRuntime(); })
     .catch(function (e) { say(String(e), true); })
     .then(function () { input.value = ""; });
