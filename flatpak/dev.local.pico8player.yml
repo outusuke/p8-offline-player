@@ -1,6 +1,6 @@
 app-id: dev.local.pico8player
 runtime: org.gnome.Platform
-runtime-version: '48'   # must ship webkit2gtk-4.1; bump if it gets removed
+runtime-version: '51'  
 sdk: org.gnome.Sdk
 command: pico8-player
 finish-args:
@@ -8,8 +8,8 @@ finish-args:
   - --socket=wayland
   - --socket=fallback-x11
   - --socket=pulseaudio
-  - --device=dri
-  - --device=all        # gamepads
+  - --device=all
+  
 modules:
   - name: pico8-player
     buildsystem: simple
