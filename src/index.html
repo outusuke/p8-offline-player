@@ -76,6 +76,7 @@
 // ---- Globals the PICO-8 web runtime expects ----
 var p8_is_running = false, Module = null, codo_textarea = null, codo_command = 0, codo_key_buffer = [];
 var pico8_state = [], pico8_buttons = [0,0,0,0,0,0,0,0], pico8_mouse = [], pico8_gamepads = { count: 0 };
+var runtimeIdle = false, cartRequested = false;
 var pico8_gpio = new Array(128), pico8_audio_context, p8_dropped_cart = null, p8_dropped_cart_name = "", _cartname;
 
 var $ = function (id) { return document.getElementById(id); };
@@ -103,6 +104,7 @@ function cartUrl(lid) { return CART_BASE + "?lid=" + encodeURIComponent(lid); }
   XMLHttpRequest.prototype.open = function (m, u) {
     if (typeof u === "string" && u.indexOf("get_cart.php") >= 0) {
       var lid = new URLSearchParams(u.split("?")[1] || "").get("lid") || "";
+      cartRequested = true;
       log("cart request lid=" + lid);
       arguments[1] = cartUrl(lid);
       var x = this;
@@ -131,7 +133,7 @@ document.addEventListener("keydown", function (e) {
 function whenReady(cb) {
   var n = 0, t = setInterval(function () {
     n++;
-    if (pico8_state && pico8_state.frame_number > 0) { clearInterval(t); log("runtime ready after " + n + " checks"); setTimeout(cb, 300); }
+    if (runtimeIdle || (pico8_state && pico8_state.frame_number > 0)) { clearInterval(t); log("runtime ready after " + n + " checks"); setTimeout(cb, 300); }
     else if (n > 200) { clearInterval(t); cb(); }
   }, 50);
 }
@@ -154,10 +156,15 @@ function loadBlob(blob, name) {
 
 function playCart(id) {
   boot(function () {
-    log("load " + id + " (codo_command=6)");
-    _cartname = [String(id)];
-    codo_command = 6;
-    say("Playing " + id + ". Arrow keys + Z/X, or the on-screen pad. Enter = pause menu.");
+    var tries = 0;
+    (function send() {
+      log("load " + id + " (codo_command=6)");
+      cartRequested = false;
+      _cartname = [String(id)];
+      codo_command = 6;
+      say("Playing " + id + ". Arrow keys + Z/X, or the on-screen pad. Enter = pause menu.");
+      setTimeout(function () { if (!cartRequested && ++tries < 4) send(); }, 2500);
+    })();
   });
 }
 
@@ -176,7 +183,7 @@ function boot(thenLoad) {
   codo_textarea = $("codo_textarea");
   var lastFrame = 0;
   setInterval(function () { var f = pico8_state.frame_number | 0; log("fps ~ " + Math.round((f - lastFrame) / 2)); lastFrame = f; }, 2000);
-  Module = { canvas: canvas, print: function (t) { log("print: " + t); }, printErr: function (t) { log("printErr: " + t); } };
+  Module = { canvas: canvas, print: function (t) { if (t.indexOf("loading embedded cartridge") >= 0) runtimeIdle = true; log("print: " + t); }, printErr: function (t) { log("printErr: " + t); } };
   canvas.addEventListener("click", p8_give_focus);
   function fail(msg) {
     say(msg, true);

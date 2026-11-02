@@ -23,7 +23,10 @@ pub fn validate(data: &[u8]) -> Result<(), String> {
             data.len()
         ));
     }
-    if !contains(data, b"pico8_state") || !contains(data, b"Module") {
+    if data.starts_with(b"PK") || data[..MIN_LEN].contains(&0) {
+        return Err("That is a binary file (an app or archive), not the runtime .js file.".into());
+    }
+    if !contains(&data[..200], b"Module") || !contains(data, b"pico8_state") {
         return Err("That .js file does not look like the PICO-8 web runtime.".into());
     }
     Ok(())
@@ -51,6 +54,13 @@ mod tests {
         html.resize(1_600_000, b' ');
         assert!(validate(&html).unwrap_err().contains("HTML"));
         assert!(validate(&fake(1000)).is_err());
+        let mut apk = b"PK\x03\x04".to_vec();
+        apk.resize(1_600_000, 0);
+        assert!(validate(&apk).unwrap_err().contains("binary"));
+        let mut late = b"console.log(1)".to_vec();
+        late.resize(1_600_000, b' ');
+        late.extend_from_slice(b"Module pico8_state");
+        assert!(validate(&late).is_err());
         let mut other = b"console.log(1)".to_vec();
         other.resize(1_600_000, b' ');
         assert!(validate(&other).unwrap_err().contains("does not look"));
