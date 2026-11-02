@@ -36,7 +36,7 @@ jobs:
         with:
           name: binary
           path: flatpak
-      - uses: flathub-infra/flatpak-github-actions/flatpak-builder@v6
+      - uses: flatpak/flatpak-github-actions/flatpak-builder@v6
         with:
           bundle: pico8-player.flatpak
           manifest-path: flatpak/dev.local.pico8player.yml
