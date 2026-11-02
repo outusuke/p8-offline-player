@@ -1,0 +1,256 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>PICO-8 Player</title>
+<style>
+  :root { color-scheme: dark; --bg:#111; --fg:#ccc; --accent:#f8a; }
+  html, body { margin:0; min-height:100%; background:var(--bg); color:var(--fg); font-family:system-ui,sans-serif; }
+  #wrap { display:flex; flex-direction:column; align-items:center; gap:12px; padding:16px; }
+  canvas { display:none; width:min(90vmin,768px); height:min(90vmin,768px); image-rendering:pixelated; background:#000; touch-action:none; cursor:none; }
+  button, label.btn { padding:10px 18px; border:2px solid #999; border-radius:6px; background:#222; color:var(--fg); font-size:15px; cursor:pointer; }
+  button:hover, label.btn:hover { background:var(--accent); color:#222; }
+  #msg { max-width:640px; text-align:center; font-size:14px; color:#999; }
+  #msg.err { color:#f77; }
+  input[type=file] { display:none; }
+  #controls { width:min(92vw,760px); display:flex; flex-direction:column; gap:10px; }
+  #search { padding:10px 12px; font-size:15px; background:#222; color:var(--fg); border:2px solid #999; border-radius:6px; }
+  #menu { display:grid; grid-template-columns:repeat(auto-fill,minmax(180px,1fr)); gap:8px; max-height:70vh; overflow:auto; }
+  .card { position:relative; }
+  .card > button.play { width:100%; text-align:center; overflow-wrap:anywhere; }
+  .card img { display:block; width:160px; height:205px; margin:0 auto 6px; image-rendering:pixelated; background:#000; }
+  .card .del { position:absolute; top:4px; right:4px; padding:2px 8px; font-size:13px; }
+  #row { display:flex; gap:10px; flex-wrap:wrap; }
+  #back { display:none; }
+  #pad { display:none; width:min(92vw,520px); justify-content:space-between; align-items:center; user-select:none; -webkit-user-select:none; touch-action:none; }
+  #pad .dp { display:grid; grid-template-columns:repeat(3,56px); grid-template-rows:repeat(3,56px); gap:4px; }
+  #pad .ab { display:flex; gap:14px; }
+  #pad button { padding:0; width:56px; height:56px; font-size:18px; touch-action:none; }
+  #pad .ab button { width:64px; height:64px; border-radius:50%; }
+  details { width:min(92vw,760px); }
+  summary { cursor:pointer; color:#777; font-size:13px; }
+  #log { max-height:200px; overflow:auto; margin:6px 0 0; padding:8px; background:#000; color:#8f8; font:12px/1.4 monospace; white-space:pre-wrap; border:1px solid #333; }
+</style>
+</head>
+<body>
+<div id="wrap">
+  <canvas id="canvas" class="emscripten" oncontextmenu="event.preventDefault();"></canvas>
+  <textarea id="codo_textarea" class="emscripten" style="display:none;position:absolute;left:-9999px;height:0;overflow:hidden"></textarea>
+  <div id="pad">
+    <div class="dp">
+      <span></span><button data-b="2">▲</button><span></span>
+      <button data-b="0">◀</button><span></span><button data-b="1">▶</button>
+      <span></span><button data-b="3">▼</button><span></span>
+    </div>
+    <div class="ab"><button data-b="5">X</button><button data-b="4">Z</button></div>
+  </div>
+  <div id="setup" style="display:none;max-width:560px;text-align:center;line-height:1.5">
+    <h2>One more step</h2>
+    <p>This app does not include the PICO-8 web player script &mdash; it belongs to Lexaloffle.
+    Save <code>pico8_0207.js</code> from <b>lexaloffle.com/play</b> (or take it from your own PICO-8 web export)
+    and select it here once. It is copied into the app and works offline afterwards.
+    Built for runtime 0.2.7.</p>
+    <label class="btn">Select runtime file…<input id="rtfile" type="file"></label>
+  </div>
+  <div id="controls">
+    <input id="search" type="search" placeholder="Search carts…" autocomplete="off">
+    <div id="menu"></div>
+    <div id="row">
+      <label class="btn">Add carts (.p8.png)…<input id="file" type="file" accept=".png" multiple></label>
+      <button id="folder">Open carts folder</button>
+      <label class="btn">Change runtime…<input id="rtfile2" type="file"></label>
+    </div>
+  </div>
+  <button id="back">← Back to menu</button>
+  <div id="msg">Loading…</div>
+  <details><summary>log</summary><pre id="log">log:
+</pre></details>
+</div>
+
+<script>
+// ---- Globals the PICO-8 web runtime expects ----
+var p8_is_running = false, Module = null, codo_textarea = null, codo_command = 0, codo_key_buffer = [];
+var pico8_state = [], pico8_buttons = [0,0,0,0,0,0,0,0], pico8_mouse = [], pico8_gamepads = { count: 0 };
+var pico8_gpio = new Array(128), pico8_audio_context, p8_dropped_cart = null, p8_dropped_cart_name = "", _cartname;
+
+var $ = function (id) { return document.getElementById(id); };
+function log(t) { var l = $("log"); l.textContent += t + "\n"; l.scrollTop = l.scrollHeight; console.log("[p8]", t); }
+function say(t, err) { var m = $("msg"); m.textContent = t; m.className = err ? "err" : ""; }
+window.addEventListener("error", function (e) { log("JS ERROR: " + e.message + " (" + (e.filename||"") + ":" + e.lineno + ")"); });
+window.addEventListener("unhandledrejection", function (e) { log("PROMISE ERROR: " + e.reason); });
+
+var T = window.__TAURI__;
+var invoke = T.core.invoke;
+// Rust serves carts under this scheme (http://p8cart.localhost/ on Windows/Android).
+var CART_BASE = T.core.convertFileSrc("", "p8cart");
+function cartUrl(lid) { return CART_BASE + "?lid=" + encodeURIComponent(lid); }
+
+// Redirect the runtime's get_cart.php requests to the local carts folder.
+(function () {
+  var open = XMLHttpRequest.prototype.open;
+  XMLHttpRequest.prototype.open = function (m, u) {
+    if (typeof u === "string" && u.indexOf("get_cart.php") >= 0) {
+      var lid = new URLSearchParams(u.split("?")[1] || "").get("lid") || "";
+      log("cart request lid=" + lid);
+      arguments[1] = cartUrl(lid);
+      var x = this;
+      x.addEventListener("loadend", function () {
+        log("  -> " + x.status);
+        if (x.status === 404) say("Cart '" + lid + "' is not in the library — add it as " + lid + ".p8.png", true);
+      });
+    }
+    return open.apply(this, arguments);
+  };
+})();
+
+// ---- Runtime glue ----
+function p8_create_audio_context() {
+  if (pico8_audio_context) { try { pico8_audio_context.resume(); } catch (e) {} return; }
+  var A = window.AudioContext || window.webkitAudioContext; if (A) pico8_audio_context = new A();
+}
+function p8_give_focus() { if (codo_textarea) { codo_textarea.focus(); codo_textarea.select(); } }
+document.addEventListener("keydown", function (e) {
+  if (p8_is_running && pico8_state.has_focus == 1 && [17,88,67,86].indexOf(e.keyCode) < 0) e.preventDefault();
+}, { passive: false });
+
+function whenReady(cb) {
+  var n = 0, t = setInterval(function () {
+    n++;
+    if (pico8_state && pico8_state.frame_number > 0) { clearInterval(t); log("runtime ready after " + n + " checks"); setTimeout(cb, 300); }
+    else if (n > 200) { clearInterval(t); cb(); }
+  }, 50);
+}
+
+function loadBlob(blob, name) {
+  var r = new FileReader();
+  r.onload = function () {
+    var data = r.result, i = data.indexOf("base64,");
+    if (i >= 0 && data.substr(i + 7, 11) === "iVBORw0KGgo") {
+      data = "data:image/png;base64," + data.substr(i + 7);
+      if (!/\.p8\.png$/i.test(name)) name = name.replace(/\.(p8|png)$/i, "") + ".p8.png";
+    }
+    p8_dropped_cart = data; p8_dropped_cart_name = name;
+    log("loadBlob " + name + " " + blob.size + " bytes (codo_command=9)");
+    codo_command = 9;
+    say("Playing " + name + ". Arrow keys + Z/X, or the on-screen pad. Enter = pause menu.");
+  };
+  r.readAsDataURL(blob);
+}
+
+function playCart(id) {
+  boot(function () {
+    invoke("read_cart", { id: id }).then(function (buf) {
+      loadBlob(new Blob([buf], { type: "image/png" }), id + ".p8.png");
+    }).catch(function (e) { say("Could not read cart: " + e, true); });
+  });
+}
+
+function boot(thenLoad) {
+  if (p8_is_running) { thenLoad(); return; }
+  p8_is_running = true;
+  p8_create_audio_context();
+  if (navigator.storage && navigator.storage.persist) navigator.storage.persist().then(function (ok) { log("storage persistent: " + ok); });
+  $("controls").style.display = "none"; $("back").style.display = "";
+  if ("ontouchstart" in window || navigator.maxTouchPoints > 0) $("pad").style.display = "flex";
+  var canvas = $("canvas"); canvas.style.display = "block";
+  codo_textarea = $("codo_textarea");
+  Module = { canvas: canvas, print: function (t) { log("print: " + t); }, printErr: function (t) { log("printErr: " + t); } };
+  canvas.addEventListener("click", p8_give_focus);
+  function fail(msg) {
+    say(msg, true);
+    canvas.style.display = "none"; $("controls").style.display = ""; $("back").style.display = "none"; $("pad").style.display = "none";
+    p8_is_running = false;
+  }
+  invoke("read_runtime").then(function (buf) {
+    var s = document.createElement("script");
+    s.src = URL.createObjectURL(new Blob([buf], { type: "text/javascript" }));
+    s.onload = function () { whenReady(function () { thenLoad(); p8_give_focus(); }); };
+    s.onerror = function () { fail("The runtime file could not be run. Use “Change runtime…” and pick a valid pico8 .js file."); };
+    document.body.appendChild(s);
+  }).catch(function (e) { fail("Could not read the runtime: " + e); });
+}
+// The runtime can only boot once per page, so "back" reloads (saves live in webview storage).
+$("back").onclick = function () { location.reload(); };
+
+// ---- On-screen pad (bit 0 left,1 right,2 up,3 down,4 Z/O,5 X) ----
+Array.prototype.forEach.call(document.querySelectorAll("#pad button"), function (b) {
+  var bit = 1 << parseInt(b.dataset.b, 10);
+  function down(e) { e.preventDefault(); pico8_buttons[0] |= bit; }
+  function up(e) { e.preventDefault(); pico8_buttons[0] &= ~bit; }
+  b.addEventListener("pointerdown", down); b.addEventListener("pointerup", up);
+  b.addEventListener("pointercancel", up); b.addEventListener("pointerleave", up);
+});
+
+// ---- Menu ----
+var carts = [];
+function render() {
+  var q = $("search").value.trim().toLowerCase(), menu = $("menu");
+  menu.textContent = "";
+  var shown = carts.filter(function (c) { return c.id.toLowerCase().indexOf(q) >= 0; });
+  shown.forEach(function (c) {
+    var card = document.createElement("div"); card.className = "card";
+    var b = document.createElement("button"); b.className = "play";
+    var im = document.createElement("img"); im.loading = "lazy"; im.alt = ""; im.src = cartUrl(c.id);
+    b.appendChild(im); b.appendChild(document.createTextNode(c.id));
+    b.onclick = function () { playCart(c.id); };
+    var d = document.createElement("button"); d.className = "del"; d.textContent = "×"; d.title = "Remove from library";
+    d.onclick = function () {
+      if (confirm("Delete " + c.id + ".p8.png from the carts folder? (Saves are kept.)"))
+        invoke("delete_cart", { id: c.id }).then(refresh).catch(function (e) { say(String(e), true); });
+    };
+    card.appendChild(b); card.appendChild(d); menu.appendChild(card);
+  });
+  say(carts.length ? shown.length + " of " + carts.length + " carts. Enter in the search box starts the first match."
+                   : "Library is empty. Use “Add carts” or “Open carts folder” and drop .p8.png files in.", !carts.length);
+  return shown;
+}
+function refresh() {
+  return invoke("list_carts").then(function (l) { carts = l; render(); })
+    .catch(function (e) { say("Could not list carts: " + e, true); });
+}
+$("search").addEventListener("input", render);
+$("search").addEventListener("keydown", function (e) {
+  if (e.key === "Enter") { var s = render(); if (s.length) playCart(s[0].id); }
+});
+$("file").onchange = function (e) {
+  var input = e.target, files = Array.prototype.slice.call(input.files), n = 0;
+  files.reduce(function (p, f) {
+    return p.then(function () { return f.arrayBuffer(); }).then(function (buf) {
+      return invoke("import_cart", { name: f.name, data: Array.from(new Uint8Array(buf)) });
+    }).then(function () { n++; }).catch(function (err) { log("import failed: " + err); say(String(err), true); });
+  }, Promise.resolve()).then(function () { log("added " + n + " cart(s)"); input.value = ""; return refresh(); });
+};
+if (/Android|iPhone|iPad/i.test(navigator.userAgent)) $("folder").style.display = "none"; // no browsable app folder on phones
+$("folder").onclick = function () { invoke("open_carts_dir").catch(function (e) { say(String(e), true); }); };
+window.addEventListener("dragover", function (e) { e.preventDefault(); });
+window.addEventListener("drop", function (e) {
+  e.preventDefault();
+  if (p8_is_running || !e.dataTransfer || !e.dataTransfer.files.length) return;
+  $("file").onchange({ target: { files: e.dataTransfer.files, set value(v) {} } });
+});
+
+
+function checkRuntime() {
+  return invoke("runtime_status").then(function (st) {
+    $("setup").style.display = st ? "none" : "";
+    $("controls").style.display = st ? "" : "none";
+    if (st) return refresh();
+    say("The PICO-8 runtime is needed before anything can be played.");
+  }).catch(function (e) { say("Startup error: " + e, true); });
+}
+function importRuntime(input) {
+  var f = input.files[0]; if (!f) return;
+  f.arrayBuffer()
+    .then(function (buf) { return invoke("import_runtime", new Uint8Array(buf)); })
+    .then(function () { log("runtime imported from " + f.name); return checkRuntime(); })
+    .catch(function (e) { say(String(e), true); })
+    .then(function () { input.value = ""; });
+}
+$("rtfile").onchange = function () { importRuntime(this); };
+$("rtfile2").onchange = function () { importRuntime(this); };
+
+checkRuntime();
+</script>
+</body>
+</html>

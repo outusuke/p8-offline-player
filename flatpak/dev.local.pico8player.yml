@@ -1,0 +1,24 @@
+app-id: dev.local.pico8player
+runtime: org.gnome.Platform
+runtime-version: '48'   # must ship webkit2gtk-4.1; bump if it gets removed
+sdk: org.gnome.Sdk
+command: pico8-player
+finish-args:
+  - --share=ipc
+  - --socket=wayland
+  - --socket=fallback-x11
+  - --socket=pulseaudio
+  - --device=dri
+  - --device=all        # gamepads
+modules:
+  - name: pico8-player
+    buildsystem: simple
+    build-commands:
+      - install -Dm755 pico8-player /app/bin/pico8-player
+      - install -Dm644 dev.local.pico8player.desktop /app/share/applications/dev.local.pico8player.desktop
+      - install -Dm644 icon-512.png /app/share/icons/hicolor/512x512/apps/dev.local.pico8player.png
+    sources:
+      # binary comes from the first CI job
+      - { type: file, path: pico8-player }
+      - { type: file, path: dev.local.pico8player.desktop }
+      - { type: file, path: icon-512.png }
