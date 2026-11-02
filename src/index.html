@@ -118,7 +118,10 @@ function cartUrl(lid) { return CART_BASE + "?lid=" + encodeURIComponent(lid); }
 // ---- Runtime glue ----
 function p8_create_audio_context() {
   if (pico8_audio_context) { try { pico8_audio_context.resume(); } catch (e) {} return; }
-  var A = window.AudioContext || window.webkitAudioContext; if (A) pico8_audio_context = new A();
+  var A = window.AudioContext || window.webkitAudioContext; if (A) {
+    // bigger output buffer: rides out short main-thread stalls at the cost of some sound latency
+    try { pico8_audio_context = new A({ latencyHint: "playback" }); } catch (e) { pico8_audio_context = new A(); }
+  }
 }
 function p8_give_focus() { if (codo_textarea) { codo_textarea.focus(); codo_textarea.select(); } }
 document.addEventListener("keydown", function (e) {
@@ -161,6 +164,8 @@ function playCart(id) {
 function boot(thenLoad) {
   if (p8_is_running) { thenLoad(); return; }
   p8_is_running = true;
+  var t0 = performance.now();
+  function since() { return Math.round(performance.now() - t0) + " ms"; }
   p8_create_audio_context();
   if (navigator.storage && navigator.storage.persist) navigator.storage.persist().then(function (ok) { log("storage persistent: " + ok); });
   $("controls").style.display = "none"; $("back").style.display = "block";
@@ -179,9 +184,13 @@ function boot(thenLoad) {
     p8_is_running = false;
   }
   invoke("read_runtime").then(function (buf) {
+    log("runtime bytes received at " + since());
     var s = document.createElement("script");
     s.src = URL.createObjectURL(new Blob([buf], { type: "text/javascript" }));
-    s.onload = function () { whenReady(function () { thenLoad(); p8_give_focus(); }); };
+    s.onload = function () {
+      log("runtime script ran at " + since());
+      whenReady(function () { log("first frame at " + since()); thenLoad(); p8_give_focus(); });
+    };
     s.onerror = function () { fail("The runtime file could not be run. Use “Change runtime…” and pick a valid pico8 .js file."); };
     document.body.appendChild(s);
   }).catch(function (e) { fail("Could not read the runtime: " + e); });
