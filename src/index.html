@@ -156,10 +156,11 @@ function boot(thenLoad) {
   p8_is_running = true;
   p8_create_audio_context();
   if (navigator.storage && navigator.storage.persist) navigator.storage.persist().then(function (ok) { log("storage persistent: " + ok); });
-  $("controls").style.display = "none"; $("back").style.display = "";
+  $("controls").style.display = "none"; $("back").style.display = "block";
   if ("ontouchstart" in window || navigator.maxTouchPoints > 0) $("pad").style.display = "flex";
   var canvas = $("canvas"); canvas.style.display = "block";
   fitCanvas();
+  history.pushState({ play: 1 }, "");
   codo_textarea = $("codo_textarea");
   Module = { canvas: canvas, print: function (t) { log("print: " + t); }, printErr: function (t) { log("printErr: " + t); } };
   canvas.addEventListener("click", p8_give_focus);
@@ -177,7 +178,24 @@ function boot(thenLoad) {
   }).catch(function (e) { fail("Could not read the runtime: " + e); });
 }
 // The runtime can only boot once per page, so "back" reloads (saves live in webview storage).
-$("back").onclick = function () { location.reload(); };
+// Leaving drops the unsaved run, so it takes two presses within 3 s.
+var leaveArmed = 0;
+function leaveGame() {
+  if (Date.now() - leaveArmed < 3000) {
+    if (history.state && history.state.play) history.back(); else location.reload();
+    return;
+  }
+  leaveArmed = Date.now();
+  $("back").textContent = "Tap again to leave (unsaved progress is lost)";
+  setTimeout(function () { $("back").textContent = "← Back to menu"; }, 3000);
+}
+$("back").onclick = leaveGame;
+window.addEventListener("popstate", function () {
+  if (!p8_is_running) return;
+  if (Date.now() - leaveArmed < 3000) { location.reload(); return; }
+  history.pushState({ play: 1 }, "");
+  leaveGame();
+});
 
 // Largest canvas that fits the window; whole device-pixel multiples of 128 unless that loses >15%.
 function fitCanvas() {
