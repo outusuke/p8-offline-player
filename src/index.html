@@ -25,12 +25,30 @@
   .card .del { position:absolute; top:4px; right:4px; padding:2px 8px; font-size:13px; }
   #row { display:flex; gap:10px; flex-wrap:wrap; }
   #back { display:none; }
-  #pad { display:none; width:min(92vw,520px); justify-content:space-between; align-items:center; user-select:none; -webkit-user-select:none; touch-action:none; }
-  #pad .dp { display:grid; grid-template-columns:repeat(3,56px); grid-template-rows:repeat(3,56px); gap:4px; }
-  #pad .ab { display:flex; gap:14px; }
-  #pad button { padding:0; width:56px; height:56px; font-size:18px; touch-action:none; }
-  #pad .ab button { width:64px; height:64px; border-radius:50%; }
-  #pad #pause { height:40px; font-size:20px; align-self:flex-start; margin-top:8px; }
+  #pad { display:none; position:fixed; inset:0; pointer-events:none; user-select:none; -webkit-user-select:none; touch-action:none; --sb:env(safe-area-inset-bottom,0px); }
+  #pad .dp, #pad button { pointer-events:auto; }
+  #pad button { position:absolute; padding:0; border:0; background:#262B38; box-shadow:inset 0 0 0 2px #3B4256; color:#E6E8EF; font-size:18px; touch-action:none; }
+  #pad button:active, #pad button.on { background:#3A4156; }
+  #pad .dp { position:absolute; left:18px; bottom:calc(118px + var(--sb)); width:156px; height:156px; border-radius:50%; background:#1A1E29; box-shadow:inset 0 0 0 2px #2F3546; display:grid; grid-template-columns:repeat(3,52px); grid-template-rows:repeat(3,52px); }
+  #pad .dp button { position:static; width:52px; height:52px; border-radius:12px; }
+  #pad .ab { display:contents; } /* lets Z/X position against #pad */
+  #pad .ab button { width:80px; height:80px; border-radius:50%; font-size:28px; font-weight:700; }
+  #pad button[data-b="4"] { right:110px; bottom:calc(136px + var(--sb)); color:#FF9DBF; }
+  #pad button[data-b="5"] { right:24px; bottom:calc(208px + var(--sb)); color:#7CC4FF; }
+  #pad #pause { left:50%; transform:translateX(-50%); bottom:calc(50px + var(--sb)); width:104px; height:44px; border-radius:22px; font-size:15px; font-weight:600; }
+  .touch #pad { display:block; }
+  .touch, .touch body { overflow:hidden; }
+  .touch #wrap { padding-top:calc(env(safe-area-inset-top,0px) + 80px); }
+  .touch #msg, .touch details { display:none; }
+  .touch #back { position:fixed; top:calc(env(safe-area-inset-top,0px) + 20px); left:16px; z-index:1; min-height:44px; max-width:calc(100vw - 32px); padding:0 14px; border:0; border-radius:14px; background:#262B38; box-shadow:inset 0 0 0 2px #3B4256; font-size:14px; }
+  @media (orientation:landscape) {
+    .touch #wrap { padding-top:30px; }
+    .touch #back { top:16px; }
+    #pad .dp { left:40px; bottom:calc(44px + var(--sb)); }
+    #pad button[data-b="4"] { right:124px; bottom:calc(95px + var(--sb)); }
+    #pad button[data-b="5"] { right:38px; bottom:calc(170px + var(--sb)); }
+    #pad #pause { left:auto; right:74px; top:16px; bottom:auto; transform:none; }
+  }
   details { width:min(92vw,760px); }
   summary { cursor:pointer; color:#777; font-size:13px; }
   #log { max-height:200px; overflow:auto; margin:6px 0 0; padding:8px; background:#000; color:#8f8; font:12px/1.4 monospace; white-space:pre-wrap; border:1px solid #333; }
@@ -46,7 +64,7 @@
       <button data-b="0">◀</button><span></span><button data-b="1">▶</button>
       <span></span><button data-b="3">▼</button><span></span>
     </div>
-    <button id="pause" title="Pause menu">☰</button>
+    <button id="pause" title="Pause menu">Pause</button>
     <div class="ab"><button data-b="5">X</button><button data-b="4">Z</button></div>
   </div>
   <div id="setup" style="display:none;max-width:560px;text-align:center;line-height:1.5">
@@ -183,7 +201,7 @@ function boot(thenLoad) {
   p8_create_audio_context();
   if (navigator.storage && navigator.storage.persist) navigator.storage.persist().then(function (ok) { log("storage persistent: " + ok); });
   $("controls").style.display = "none"; $("back").style.display = "block";
-  if ("ontouchstart" in window || navigator.maxTouchPoints > 0) $("pad").style.display = "flex";
+  if ("ontouchstart" in window || navigator.maxTouchPoints > 0) document.documentElement.classList.add("touch");
   var canvas = $("canvas"); canvas.style.display = "block";
   fitCanvas();
   history.pushState({ play: 1 }, "");
@@ -192,7 +210,7 @@ function boot(thenLoad) {
   canvas.addEventListener("click", p8_give_focus);
   function fail(msg) {
     say(msg, true);
-    canvas.style.display = "none"; $("controls").style.display = ""; $("back").style.display = "none"; $("pad").style.display = "none";
+    canvas.style.display = "none"; $("controls").style.display = ""; $("back").style.display = "none"; document.documentElement.classList.remove("touch");
     p8_is_running = false;
   }
   invoke("read_runtime").then(function (buf) {
@@ -231,8 +249,10 @@ window.addEventListener("popstate", function () {
 function fitCanvas() {
   var c = $("canvas");
   if (c.style.display !== "block") return;
-  var dpr = window.devicePixelRatio || 1, padUp = $("pad").style.display === "flex";
-  var avail = Math.min(window.innerWidth - (padUp ? 0 : 32), window.innerHeight - (padUp ? 300 : 180)) * dpr;
+  var dpr = window.devicePixelRatio || 1, w = window.innerWidth, h = window.innerHeight;
+  var room = !document.documentElement.classList.contains("touch") ? Math.min(w - 32, h - 180)
+           : w > h ? Math.min(w - 400, h - 60) : Math.min(w - 32, h - 380);
+  var avail = room * dpr;
   var snap = Math.floor(avail / 128) * 128;
   if (snap < avail * 0.85) snap = avail;
   c.style.width = c.style.height = Math.max(128, snap) / dpr + "px";
@@ -249,13 +269,32 @@ function tapKey(code, key) {
 $("pause").addEventListener("pointerdown", function (e) { e.preventDefault(); tapKey(13, "Enter"); });
 
 // ---- On-screen pad (bit 0 left,1 right,2 up,3 down,4 Z/O,5 X) ----
-Array.prototype.forEach.call(document.querySelectorAll("#pad button[data-b]"), function (b) {
+Array.prototype.forEach.call(document.querySelectorAll("#pad .ab button"), function (b) {
   var bit = 1 << parseInt(b.dataset.b, 10);
   function down(e) { e.preventDefault(); pico8_buttons[0] |= bit; }
   function up(e) { e.preventDefault(); pico8_buttons[0] &= ~bit; }
   b.addEventListener("pointerdown", down); b.addEventListener("pointerup", up);
   b.addEventListener("pointercancel", up); b.addEventListener("pointerleave", up);
 });
+
+// The d-pad reads the touch position, so the thumb can slide between directions and hit diagonals.
+var dp = document.querySelector("#pad .dp"), dpArms = dp.querySelectorAll("button");
+function dpSet(m) {
+  pico8_buttons[0] = (pico8_buttons[0] & ~15) | m;
+  Array.prototype.forEach.call(dpArms, function (b) { b.classList.toggle("on", !!(m & (1 << b.dataset.b))); });
+}
+function dpTouch(e) {
+  var r = dp.getBoundingClientRect(), x = e.clientX - r.left - r.width / 2, y = e.clientY - r.top - r.height / 2, t = r.width * 0.2, m = 0;
+  if (Math.hypot(x, y) > r.width * 0.12) {
+    m = (x < -t ? 1 : 0) | (x > t ? 2 : 0) | (y < -t ? 4 : 0) | (y > t ? 8 : 0);
+    if (!m) m = Math.abs(x) > Math.abs(y) ? (x < 0 ? 1 : 2) : (y < 0 ? 4 : 8);
+  }
+  dpSet(m);
+}
+dp.addEventListener("pointerdown", function (e) { e.preventDefault(); dp.setPointerCapture(e.pointerId); dpTouch(e); });
+dp.addEventListener("pointermove", function (e) { if (dp.hasPointerCapture(e.pointerId)) dpTouch(e); });
+dp.addEventListener("pointerup", function () { dpSet(0); });
+dp.addEventListener("pointercancel", function () { dpSet(0); });
 
 // ---- Menu ----
 var carts = [];
