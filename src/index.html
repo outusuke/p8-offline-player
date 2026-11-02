@@ -30,6 +30,7 @@
   #pad .ab { display:flex; gap:14px; }
   #pad button { padding:0; width:56px; height:56px; font-size:18px; touch-action:none; }
   #pad .ab button { width:64px; height:64px; border-radius:50%; }
+  #pad #pause { height:40px; font-size:20px; align-self:flex-start; margin-top:8px; }
   details { width:min(92vw,760px); }
   summary { cursor:pointer; color:#777; font-size:13px; }
   #log { max-height:200px; overflow:auto; margin:6px 0 0; padding:8px; background:#000; color:#8f8; font:12px/1.4 monospace; white-space:pre-wrap; border:1px solid #333; }
@@ -45,6 +46,7 @@
       <button data-b="0">◀</button><span></span><button data-b="1">▶</button>
       <span></span><button data-b="3">▼</button><span></span>
     </div>
+    <button id="pause" title="Pause menu">☰</button>
     <div class="ab"><button data-b="5">X</button><button data-b="4">Z</button></div>
   </div>
   <div id="setup" style="display:none;max-width:560px;text-align:center;line-height:1.5">
@@ -157,6 +159,7 @@ function boot(thenLoad) {
   $("controls").style.display = "none"; $("back").style.display = "";
   if ("ontouchstart" in window || navigator.maxTouchPoints > 0) $("pad").style.display = "flex";
   var canvas = $("canvas"); canvas.style.display = "block";
+  fitCanvas();
   codo_textarea = $("codo_textarea");
   Module = { canvas: canvas, print: function (t) { log("print: " + t); }, printErr: function (t) { log("printErr: " + t); } };
   canvas.addEventListener("click", p8_give_focus);
@@ -176,8 +179,29 @@ function boot(thenLoad) {
 // The runtime can only boot once per page, so "back" reloads (saves live in webview storage).
 $("back").onclick = function () { location.reload(); };
 
+// Largest canvas that fits the window; whole device-pixel multiples of 128 unless that loses >15%.
+function fitCanvas() {
+  var c = $("canvas");
+  if (c.style.display !== "block") return;
+  var dpr = window.devicePixelRatio || 1, padUp = $("pad").style.display === "flex";
+  var avail = Math.min(window.innerWidth - (padUp ? 0 : 32), window.innerHeight - (padUp ? 300 : 180)) * dpr;
+  var snap = Math.floor(avail / 128) * 128;
+  if (snap < avail * 0.85) snap = avail;
+  c.style.width = c.style.height = Math.max(128, snap) / dpr + "px";
+}
+window.addEventListener("resize", fitCanvas);
+
+// PICO-8's pause menu is Enter/P; phones have no key for it.
+function tapKey(code, key) {
+  var t = codo_textarea || document;
+  function ev(type) { return new KeyboardEvent(type, { key: key, code: key, keyCode: code, which: code, bubbles: true, cancelable: true }); }
+  t.dispatchEvent(ev("keydown"));
+  setTimeout(function () { t.dispatchEvent(ev("keyup")); }, 80);
+}
+$("pause").addEventListener("pointerdown", function (e) { e.preventDefault(); tapKey(13, "Enter"); });
+
 // ---- On-screen pad (bit 0 left,1 right,2 up,3 down,4 Z/O,5 X) ----
-Array.prototype.forEach.call(document.querySelectorAll("#pad button"), function (b) {
+Array.prototype.forEach.call(document.querySelectorAll("#pad button[data-b]"), function (b) {
   var bit = 1 << parseInt(b.dataset.b, 10);
   function down(e) { e.preventDefault(); pico8_buttons[0] |= bit; }
   function up(e) { e.preventDefault(); pico8_buttons[0] &= ~bit; }
