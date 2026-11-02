@@ -120,10 +120,16 @@ function cartUrl(lid) { return CART_BASE + "?lid=" + encodeURIComponent(lid); }
 // ---- Runtime glue ----
 function p8_create_audio_context() {
   if (pico8_audio_context) { try { pico8_audio_context.resume(); } catch (e) {} return; }
-  var A = window.AudioContext || window.webkitAudioContext; if (A) {
-    // bigger output buffer: rides out short main-thread stalls at the cost of some sound latency
-    try { pico8_audio_context = new A({ latencyHint: "playback" }); } catch (e) { pico8_audio_context = new A(); }
+  var A = window.AudioContext || window.webkitAudioContext; if (!A) return;
+  var phone = /Android/i.test(navigator.userAgent);
+  try { pico8_audio_context = phone ? new A({ latencyHint: "playback" }) : new A(); } catch (e) { pico8_audio_context = new A(); }
+  if (phone) {
+    // The runtime asks for 1024-sample blocks (~21 ms) and its mixer adapts to any size; a late block
+    // means silence and a stretched-out tempo, so ask for 4096 on phones.
+    var make = pico8_audio_context.createScriptProcessor;
+    pico8_audio_context.createScriptProcessor = function (size, i, o) { return make.call(this, Math.max(size, 4096), i, o); };
   }
+  log("audio: " + pico8_audio_context.sampleRate + " Hz, base latency " + pico8_audio_context.baseLatency);
 }
 function p8_give_focus() { if (codo_textarea) { codo_textarea.focus(); codo_textarea.select(); } }
 document.addEventListener("keydown", function (e) {
