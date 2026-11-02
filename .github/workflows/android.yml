@@ -30,9 +30,17 @@ jobs:
       - run: npm install
       - run: '[ -f src-tauri/icons/icon.ico ] || npx tauri icon app-icon.png'
       - run: npx tauri android init --ci
-      # --debug signs with the debug key so the APK installs without a keystore
-      - run: npx tauri android build --apk --debug --target aarch64 --target armv7
+      - run: npx tauri android build --apk --target aarch64 --target armv7
+      # throwaway key: installs fine, but updates only apply over builds signed with the same key
+      - name: Sign
+        run: |
+          keytool -genkeypair -keystore ci.jks -alias ci -keyalg RSA -keysize 2048 -validity 10000 \
+            -storepass android -keypass android -dname "CN=ci"
+          BT="$ANDROID_HOME/build-tools/34.0.0"
+          APK=$(find src-tauri/gen/android -name '*-unsigned.apk' | head -n1)
+          "$BT/zipalign" -f -p 4 "$APK" aligned.apk
+          "$BT/apksigner" sign --ks ci.jks --ks-pass pass:android --out pico8-player.apk aligned.apk
       - uses: actions/upload-artifact@v4
         with:
           name: pico8-player-apk
-          path: src-tauri/gen/android/app/build/outputs/apk/**/*.apk
+          path: pico8-player.apk
