@@ -1,6 +1,6 @@
 # PICO-8 Player
 
-Offline PICO-8 cart player built with Tauri 2. It replaces the old `server.py` setup:
+Offline PICO-8 cart player built with Tauri 2.
 Rust serves carts straight from a folder, and the same page and web runtime run in a native webview.
 Targets: Windows, macOS, Linux (installers and Flatpak) and Android.
 
