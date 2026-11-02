@@ -79,7 +79,14 @@ var pico8_state = [], pico8_buttons = [0,0,0,0,0,0,0,0], pico8_mouse = [], pico8
 var pico8_gpio = new Array(128), pico8_audio_context, p8_dropped_cart = null, p8_dropped_cart_name = "", _cartname;
 
 var $ = function (id) { return document.getElementById(id); };
-function log(t) { var l = $("log"); l.textContent += t + "\n"; l.scrollTop = l.scrollHeight; console.log("[p8]", t); }
+// Keep only the last lines and touch the DOM only while the log is open; the game shares this thread.
+var logLines = [];
+function showLog() { var l = $("log"); l.textContent = "log:\n" + logLines.join("\n"); l.scrollTop = l.scrollHeight; }
+function log(t) {
+  logLines.push(t); if (logLines.length > 200) logLines.shift();
+  if ($("log").parentNode.open) showLog();
+}
+$("log").parentNode.addEventListener("toggle", showLog);
 function say(t, err) { var m = $("msg"); m.textContent = t; m.className = err ? "err" : ""; }
 window.addEventListener("error", function (e) { log("JS ERROR: " + e.message + " (" + (e.filename||"") + ":" + e.lineno + ")"); });
 window.addEventListener("unhandledrejection", function (e) { log("PROMISE ERROR: " + e.reason); });
@@ -162,6 +169,8 @@ function boot(thenLoad) {
   fitCanvas();
   history.pushState({ play: 1 }, "");
   codo_textarea = $("codo_textarea");
+  var lastFrame = 0;
+  setInterval(function () { var f = pico8_state.frame_number | 0; log("fps ~ " + Math.round((f - lastFrame) / 2)); lastFrame = f; }, 2000);
   Module = { canvas: canvas, print: function (t) { log("print: " + t); }, printErr: function (t) { log("printErr: " + t); } };
   canvas.addEventListener("click", p8_give_focus);
   function fail(msg) {
