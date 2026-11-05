@@ -2,6 +2,12 @@ name: release
 on:
   push:
     tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Tag for the draft release (e.g. v0.1.7)
+        type: string
+        required: true
 
 jobs:
   desktop:
@@ -11,7 +17,11 @@ jobs:
   flatpak:
     uses: ./.github/workflows/flatpak.yml
   android:
-    uses: ./.github/workflows/android.yml
+    # android-signed has its own release job that asks for write, even when skipped
+    permissions:
+      contents: write
+    uses: ./.github/workflows/android-signed.yml
+    secrets: inherit
 
   release:
     needs: [desktop, appimage, flatpak, android]
@@ -27,6 +37,8 @@ jobs:
       - run: ls -lR dist
       - uses: softprops/action-gh-release@v2
         with:
+          tag_name: ${{ inputs.tag || github.ref_name }}
+          target_commitish: ${{ github.sha }}
           files: dist/*
           draft: true
           generate_release_notes: true

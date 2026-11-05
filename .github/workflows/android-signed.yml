@@ -1,5 +1,6 @@
 name: android-signed
 on:
+  workflow_call:
   workflow_dispatch:
     inputs:
       draft_release:
