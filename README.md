@@ -23,6 +23,7 @@ Multi-cart games need every cart in the folder, named as on the BBS. A missing o
 as a 404 with its lid in the on-screen log.
 
 Saves (cartdata, options) live in the webview's storage, not in the carts folder.
+The player flushes them to storage every 5 s, when the window is hidden, and when you leave a game.
 `update_carts.py` from the old setup still works if you point it at the new folder.
 
 ## Build

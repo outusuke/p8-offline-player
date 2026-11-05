@@ -225,12 +225,45 @@ function boot(thenLoad) {
     document.body.appendChild(s);
   }).catch(function (e) { fail("Could not read the runtime: " + e); });
 }
+// Cartdata lives in the runtime's IndexedDB-backed FS; push it out so a killed webview loses at most a few seconds.
+var flushing = false, flushSeq = 0, flushWarned = false, flushWaiters = [];
+function runtimeFS() {
+  var fs = (Module && Module.FS) || (typeof FS !== "undefined" ? FS : null);
+  return fs && fs.syncfs ? fs : null;
+}
+function settleFlush(err, why) {
+  flushing = false;
+  if (err) log("save flush (" + why + ") failed: " + err);
+  flushWaiters.splice(0).forEach(function (f) { f(); });
+}
+function flushSaves(why, done) {
+  if (done) flushWaiters.push(done);
+  if (flushing) return;
+  var fs = p8_is_running && runtimeFS();
+  if (!fs) {
+    if (p8_is_running && !flushWarned) { flushWarned = true; log("save flush unavailable: runtime does not expose FS"); }
+    settleFlush();
+    return;
+  }
+  var id = ++flushSeq;
+  flushing = true;
+  // IndexedDB can stall while the webview dies; never block leaving on it.
+  var timer = setTimeout(function () { if (id === flushSeq) settleFlush("timed out", why); }, 2000);
+  try {
+    fs.syncfs(false, function (err) { clearTimeout(timer); if (id === flushSeq && flushing) settleFlush(err, why); });
+  } catch (e) { clearTimeout(timer); settleFlush(e, why); }
+}
+setInterval(function () { if (p8_is_running && !document.hidden) flushSaves("timer"); }, 5000);
+document.addEventListener("visibilitychange", function () { if (document.hidden) flushSaves("hidden"); });
+window.addEventListener("pagehide", function () { flushSaves("pagehide"); });
+function reloadAfterFlush() { flushSaves("leave", function () { location.reload(); }); }
+
 // The runtime can only boot once per page, so "back" reloads (saves live in webview storage).
 // Leaving drops the unsaved run, so it takes two presses within 3 s.
 var leaveArmed = 0;
 function leaveGame() {
   if (Date.now() - leaveArmed < 3000) {
-    if (history.state && history.state.play) history.back(); else location.reload();
+    if (history.state && history.state.play) history.back(); else reloadAfterFlush();
     return;
   }
   leaveArmed = Date.now();
@@ -240,7 +273,7 @@ function leaveGame() {
 $("back").onclick = leaveGame;
 window.addEventListener("popstate", function () {
   if (!p8_is_running) return;
-  if (Date.now() - leaveArmed < 3000) { location.reload(); return; }
+  if (Date.now() - leaveArmed < 3000) { reloadAfterFlush(); return; }
   history.pushState({ play: 1 }, "");
   leaveGame();
 });
