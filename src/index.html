@@ -40,10 +40,16 @@
   .touch, .touch body { overflow:hidden; }
   .touch #wrap { padding-top:calc(env(safe-area-inset-top,0px) + 80px); }
   .touch #msg, .touch details { display:none; }
-  .touch #back { position:fixed; top:calc(env(safe-area-inset-top,0px) + 20px); left:16px; z-index:1; min-height:44px; max-width:calc(100vw - 32px); padding:0 14px; border:0; border-radius:14px; background:#262B38; box-shadow:inset 0 0 0 2px #3B4256; font-size:14px; }
+  .touch #back { position:fixed; top:calc(env(safe-area-inset-top,0px) + 20px); left:16px; z-index:1; min-height:44px; max-width:calc(100vw - 32px); padding:0 14px; border:0; border-radius:14px; background:#262B38; box-shadow:inset 0 0 0 2px #3B4256; color:var(--fg); font-size:14px; } /* sticky :hover would otherwise turn the text dark */
+  #logbtn { display:none; }
+  .touch #logbtn { display:block; position:fixed; top:calc(env(safe-area-inset-top,0px) + 20px); right:16px; z-index:3; min-height:44px; padding:0 14px; border:0; border-radius:14px; background:#262B38; box-shadow:inset 0 0 0 2px #3B4256; color:var(--fg); font-size:14px; }
+  .touch.showlog details { display:block; position:fixed; inset:0; z-index:2; width:auto; box-sizing:border-box; padding:calc(env(safe-area-inset-top,0px) + 76px) 12px calc(env(safe-area-inset-bottom,0px) + 12px); background:rgba(0,0,0,.92); }
+  .touch.showlog summary { display:none; }
+  /* details wraps its content, so a percentage height would not resolve and the log would never overflow */
+  .touch.showlog #log { box-sizing:border-box; max-height:calc(100vh - env(safe-area-inset-top,0px) - env(safe-area-inset-bottom,0px) - 100px); max-height:calc(100dvh - env(safe-area-inset-top,0px) - env(safe-area-inset-bottom,0px) - 100px); }
   @media (orientation:landscape) {
     .touch #wrap { padding-top:30px; }
-    .touch #back { top:16px; }
+    .touch #back, .touch #logbtn { top:16px; }
     #pad .dp { left:40px; bottom:calc(44px + var(--sb)); }
     #pad button[data-b="4"] { right:124px; bottom:calc(95px + var(--sb)); }
     #pad button[data-b="5"] { right:38px; bottom:calc(170px + var(--sb)); }
@@ -85,6 +91,7 @@
     </div>
   </div>
   <button id="back">← Back to menu</button>
+  <button id="logbtn">Log</button>
   <div id="msg">Loading…</div>
   <details><summary>log</summary><pre id="log">log:
 </pre></details>
@@ -100,12 +107,22 @@ var pico8_gpio = new Array(128), pico8_audio_context, p8_dropped_cart = null, p8
 var $ = function (id) { return document.getElementById(id); };
 // Keep only the last lines and touch the DOM only while the log is open; the game shares this thread.
 var logLines = [];
-function showLog() { var l = $("log"); l.textContent = "log:\n" + logLines.join("\n"); l.scrollTop = l.scrollHeight; }
+// follow new lines only while already at the bottom, otherwise older lines can't be read
+function showLog() {
+  var l = $("log"), top = l.scrollTop, stick = top + l.clientHeight >= l.scrollHeight - 24;
+  l.textContent = "log:\n" + logLines.join("\n");
+  l.scrollTop = stick ? l.scrollHeight : top;
+}
 function log(t) {
   logLines.push(t); if (logLines.length > 200) logLines.shift();
   if ($("log").parentNode.open) showLog();
 }
 $("log").parentNode.addEventListener("toggle", showLog);
+$("logbtn").onclick = function () {
+  var on = document.documentElement.classList.toggle("showlog");
+  $("log").parentNode.open = on;
+  this.textContent = on ? "Close" : "Log";
+};
 function say(t, err) { var m = $("msg"); m.textContent = t; m.className = err ? "err" : ""; }
 window.addEventListener("error", function (e) { log("JS ERROR: " + e.message + " (" + (e.filename||"") + ":" + e.lineno + ")"); });
 window.addEventListener("unhandledrejection", function (e) { log("PROMISE ERROR: " + e.reason); });
@@ -225,12 +242,45 @@ function boot(thenLoad) {
     document.body.appendChild(s);
   }).catch(function (e) { fail("Could not read the runtime: " + e); });
 }
+// Cartdata lives in the runtime's IndexedDB-backed FS; push it out so a killed webview loses at most a few seconds.
+var flushing = false, flushSeq = 0, flushWarned = false, flushWaiters = [];
+function runtimeFS() {
+  var fs = (Module && Module.FS) || (typeof FS !== "undefined" ? FS : null);
+  return fs && fs.syncfs ? fs : null;
+}
+function settleFlush(err, why) {
+  flushing = false;
+  if (err) log("save flush (" + why + ") failed: " + err);
+  flushWaiters.splice(0).forEach(function (f) { f(); });
+}
+function flushSaves(why, done) {
+  if (done) flushWaiters.push(done);
+  if (flushing) return;
+  var fs = p8_is_running && runtimeFS();
+  if (!fs) {
+    if (p8_is_running && !flushWarned) { flushWarned = true; log("save flush unavailable: runtime does not expose FS"); }
+    settleFlush();
+    return;
+  }
+  var id = ++flushSeq;
+  flushing = true;
+  // IndexedDB can stall while the webview dies; never block leaving on it.
+  var timer = setTimeout(function () { if (id === flushSeq) settleFlush("timed out", why); }, 2000);
+  try {
+    fs.syncfs(false, function (err) { clearTimeout(timer); if (id === flushSeq && flushing) settleFlush(err, why); });
+  } catch (e) { clearTimeout(timer); settleFlush(e, why); }
+}
+setInterval(function () { if (p8_is_running && !document.hidden) flushSaves("timer"); }, 5000);
+document.addEventListener("visibilitychange", function () { if (document.hidden) flushSaves("hidden"); });
+window.addEventListener("pagehide", function () { flushSaves("pagehide"); });
+function reloadAfterFlush() { flushSaves("leave", function () { location.reload(); }); }
+
 // The runtime can only boot once per page, so "back" reloads (saves live in webview storage).
 // Leaving drops the unsaved run, so it takes two presses within 3 s.
 var leaveArmed = 0;
 function leaveGame() {
   if (Date.now() - leaveArmed < 3000) {
-    if (history.state && history.state.play) history.back(); else location.reload();
+    if (history.state && history.state.play) history.back(); else reloadAfterFlush();
     return;
   }
   leaveArmed = Date.now();
@@ -240,7 +290,7 @@ function leaveGame() {
 $("back").onclick = leaveGame;
 window.addEventListener("popstate", function () {
   if (!p8_is_running) return;
-  if (Date.now() - leaveArmed < 3000) { location.reload(); return; }
+  if (Date.now() - leaveArmed < 3000) { reloadAfterFlush(); return; }
   history.pushState({ play: 1 }, "");
   leaveGame();
 });
