@@ -64,6 +64,8 @@ jobs:
       - run: npm install
       - run: '[ -f src-tauri/icons/icon.ico ] || npx tauri icon app-icon.png'
       - run: npx tauri android init --ci
+      # icons only land in gen/android once it exists; before init the template's default icon is used
+      - run: npx tauri icon app-icon.png
       - run: npx tauri android build --apk --target aarch64 --target armv7
       - name: Sign
         env:
