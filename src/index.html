@@ -40,10 +40,15 @@
   .touch, .touch body { overflow:hidden; }
   .touch #wrap { padding-top:calc(env(safe-area-inset-top,0px) + 80px); }
   .touch #msg, .touch details { display:none; }
-  .touch #back { position:fixed; top:calc(env(safe-area-inset-top,0px) + 20px); left:16px; z-index:1; min-height:44px; max-width:calc(100vw - 32px); padding:0 14px; border:0; border-radius:14px; background:#262B38; box-shadow:inset 0 0 0 2px #3B4256; font-size:14px; }
+  .touch #back { position:fixed; top:calc(env(safe-area-inset-top,0px) + 20px); left:16px; z-index:1; min-height:44px; max-width:calc(100vw - 32px); padding:0 14px; border:0; border-radius:14px; background:#262B38; box-shadow:inset 0 0 0 2px #3B4256; color:var(--fg); font-size:14px; } /* sticky :hover would otherwise turn the text dark */
+  #logbtn { display:none; }
+  .touch #logbtn { display:block; position:fixed; top:calc(env(safe-area-inset-top,0px) + 20px); right:16px; z-index:3; min-height:44px; padding:0 14px; border:0; border-radius:14px; background:#262B38; box-shadow:inset 0 0 0 2px #3B4256; color:var(--fg); font-size:14px; }
+  .touch.showlog details { display:block; position:fixed; inset:0; z-index:2; width:auto; box-sizing:border-box; padding:calc(env(safe-area-inset-top,0px) + 76px) 12px calc(env(safe-area-inset-bottom,0px) + 12px); background:rgba(0,0,0,.92); }
+  .touch.showlog summary { display:none; }
+  .touch.showlog #log { box-sizing:border-box; height:100%; max-height:none; }
   @media (orientation:landscape) {
     .touch #wrap { padding-top:30px; }
-    .touch #back { top:16px; }
+    .touch #back, .touch #logbtn { top:16px; }
     #pad .dp { left:40px; bottom:calc(44px + var(--sb)); }
     #pad button[data-b="4"] { right:124px; bottom:calc(95px + var(--sb)); }
     #pad button[data-b="5"] { right:38px; bottom:calc(170px + var(--sb)); }
@@ -85,6 +90,7 @@
     </div>
   </div>
   <button id="back">← Back to menu</button>
+  <button id="logbtn">Log</button>
   <div id="msg">Loading…</div>
   <details><summary>log</summary><pre id="log">log:
 </pre></details>
@@ -106,6 +112,11 @@ function log(t) {
   if ($("log").parentNode.open) showLog();
 }
 $("log").parentNode.addEventListener("toggle", showLog);
+$("logbtn").onclick = function () {
+  var on = document.documentElement.classList.toggle("showlog");
+  $("log").parentNode.open = on;
+  this.textContent = on ? "Close" : "Log";
+};
 function say(t, err) { var m = $("msg"); m.textContent = t; m.className = err ? "err" : ""; }
 window.addEventListener("error", function (e) { log("JS ERROR: " + e.message + " (" + (e.filename||"") + ":" + e.lineno + ")"); });
 window.addEventListener("unhandledrejection", function (e) { log("PROMISE ERROR: " + e.reason); });
