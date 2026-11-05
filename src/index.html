@@ -45,7 +45,8 @@
   .touch #logbtn { display:block; position:fixed; top:calc(env(safe-area-inset-top,0px) + 20px); right:16px; z-index:3; min-height:44px; padding:0 14px; border:0; border-radius:14px; background:#262B38; box-shadow:inset 0 0 0 2px #3B4256; color:var(--fg); font-size:14px; }
   .touch.showlog details { display:block; position:fixed; inset:0; z-index:2; width:auto; box-sizing:border-box; padding:calc(env(safe-area-inset-top,0px) + 76px) 12px calc(env(safe-area-inset-bottom,0px) + 12px); background:rgba(0,0,0,.92); }
   .touch.showlog summary { display:none; }
-  .touch.showlog #log { box-sizing:border-box; height:100%; max-height:none; }
+  /* details wraps its content, so a percentage height would not resolve and the log would never overflow */
+  .touch.showlog #log { box-sizing:border-box; max-height:calc(100vh - env(safe-area-inset-top,0px) - env(safe-area-inset-bottom,0px) - 100px); max-height:calc(100dvh - env(safe-area-inset-top,0px) - env(safe-area-inset-bottom,0px) - 100px); }
   @media (orientation:landscape) {
     .touch #wrap { padding-top:30px; }
     .touch #back, .touch #logbtn { top:16px; }
@@ -106,7 +107,12 @@ var pico8_gpio = new Array(128), pico8_audio_context, p8_dropped_cart = null, p8
 var $ = function (id) { return document.getElementById(id); };
 // Keep only the last lines and touch the DOM only while the log is open; the game shares this thread.
 var logLines = [];
-function showLog() { var l = $("log"); l.textContent = "log:\n" + logLines.join("\n"); l.scrollTop = l.scrollHeight; }
+// follow new lines only while already at the bottom, otherwise older lines can't be read
+function showLog() {
+  var l = $("log"), top = l.scrollTop, stick = top + l.clientHeight >= l.scrollHeight - 24;
+  l.textContent = "log:\n" + logLines.join("\n");
+  l.scrollTop = stick ? l.scrollHeight : top;
+}
 function log(t) {
   logLines.push(t); if (logLines.length > 200) logLines.shift();
   if ($("log").parentNode.open) showLog();
